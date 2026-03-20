@@ -1,19 +1,19 @@
 # YouTube-Cloude
 ---
 ## Вам понадобится установить зависимости
-><br/>import cv2
-<br/>import numpy as np
-<br/>import os
-<br/>import math
-<br/>import subprocess
-<br/>import tempfile
-<br/>import shutil
-<br/>import sys
-<br/>import re
-<br/>import hashlib
+><br/> cv2
+<br/> numpy as np
+<br/> os
+<br/> math
+<br/> subprocess
+<br/> tempfile
+<br/> shutil
+<br/> sys
+<br/> re
+<br/> hashlib
 ---
 # Для кодирования любого файла:
-><br/><code>python coder.py endcode FILENAME.xxx FILENAME.mp4</code>
+><br/><code>python coder.py encode FILENAME.xxx FILENAME.mp4</code>
 <br/>Где .xxx - это расширение вашего файла, который находится в одной папке с coder.py
 ---
 # Для декодирования видеофайла:
