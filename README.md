@@ -12,7 +12,7 @@
 <br/> re
 <br/> hashlib
 ---
-# Для кодирования любого файла:
+# Для кодирования любого файла в cmd.exe:
 ><br/><code>python coder.py encode FILENAME.xxx FILENAME.mp4</code>
 <br/>Где .xxx - это расширение вашего файла, который находится в одной папке с coder.py
 ---
