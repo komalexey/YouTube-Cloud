@@ -34,7 +34,7 @@ std::size_t CodecSettings::blocksPerRegion() const {
     return static_cast<std::size_t>(blocksX()) * static_cast<std::size_t>(blocksY());
 }
 
-const std::array<Color, 16>& palette() {
+const std::array<Color, 16>& legacyPalette() {
     static const std::array<Color, 16> colors = {{
         {255, 0, 0},
         {0, 255, 0},
@@ -54,6 +54,24 @@ const std::array<Color, 16>& palette() {
         {255, 255, 255},
     }};
     return colors;
+}
+
+int bitsPerSymbol(std::size_t color_count) {
+    int bits = 0;
+    std::size_t current = 1;
+    while (current < color_count) {
+        current <<= 1U;
+        ++bits;
+    }
+    return bits;
+}
+
+Color colorFrom64Symbol(std::uint8_t symbol) {
+    static constexpr std::array<std::uint8_t, 4> kLevels = {0, 85, 170, 255};
+    const auto b = kLevels[(symbol >> 4U) & 0x03U];
+    const auto g = kLevels[(symbol >> 2U) & 0x03U];
+    const auto r = kLevels[symbol & 0x03U];
+    return {b, g, r};
 }
 
 std::vector<std::uint8_t> readBinaryFile(const std::filesystem::path& path) {
@@ -96,25 +114,51 @@ std::vector<std::uint8_t> xorWithKey(const std::vector<std::uint8_t>& data, cons
     return result;
 }
 
-std::vector<std::uint8_t> bytesToNibbles(const std::vector<std::uint8_t>& data) {
-    std::vector<std::uint8_t> nibbles;
-    nibbles.reserve(data.size() * 2);
-
-    for (const auto byte : data) {
-        nibbles.push_back(static_cast<std::uint8_t>((byte >> 4) & 0x0F));
-        nibbles.push_back(static_cast<std::uint8_t>(byte & 0x0F));
+std::vector<std::uint8_t> bytesToSymbols(const std::vector<std::uint8_t>& data, int bits_per_symbol) {
+    std::vector<std::uint8_t> symbols;
+    if (bits_per_symbol <= 0 || bits_per_symbol > 8) {
+        return symbols;
     }
 
-    return nibbles;
+    std::uint32_t bit_buffer = 0;
+    int buffered_bits = 0;
+    const auto mask = static_cast<std::uint32_t>((1U << bits_per_symbol) - 1U);
+
+    for (const auto byte : data) {
+        bit_buffer = (bit_buffer << 8U) | static_cast<std::uint32_t>(byte);
+        buffered_bits += 8;
+
+        while (buffered_bits >= bits_per_symbol) {
+            buffered_bits -= bits_per_symbol;
+            symbols.push_back(static_cast<std::uint8_t>((bit_buffer >> buffered_bits) & mask));
+        }
+    }
+
+    if (buffered_bits > 0) {
+        symbols.push_back(static_cast<std::uint8_t>((bit_buffer << (bits_per_symbol - buffered_bits)) & mask));
+    }
+
+    return symbols;
 }
 
-std::vector<std::uint8_t> nibblesToBytes(const std::vector<std::uint8_t>& nibbles) {
+std::vector<std::uint8_t> symbolsToBytes(const std::vector<std::uint8_t>& symbols, int bits_per_symbol) {
     std::vector<std::uint8_t> bytes;
-    bytes.reserve(nibbles.size() / 2);
+    if (bits_per_symbol <= 0 || bits_per_symbol > 8) {
+        return bytes;
+    }
 
-    for (std::size_t index = 0; index + 1 < nibbles.size(); index += 2) {
-        const auto byte = static_cast<std::uint8_t>((nibbles[index] << 4) | (nibbles[index + 1] & 0x0F));
-        bytes.push_back(byte);
+    std::uint32_t bit_buffer = 0;
+    int buffered_bits = 0;
+    const auto mask = static_cast<std::uint32_t>((1U << bits_per_symbol) - 1U);
+
+    for (const auto symbol : symbols) {
+        bit_buffer = (bit_buffer << bits_per_symbol) | (static_cast<std::uint32_t>(symbol) & mask);
+        buffered_bits += bits_per_symbol;
+
+        while (buffered_bits >= 8) {
+            buffered_bits -= 8;
+            bytes.push_back(static_cast<std::uint8_t>((bit_buffer >> buffered_bits) & 0xFFU));
+        }
     }
 
     return bytes;

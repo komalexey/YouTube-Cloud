@@ -26,8 +26,14 @@ private:
     void log(const std::string& message) const;
     void reportProgress(const std::string& stage, std::size_t current, std::size_t total) const;
     void precomputeCoordinates();
-    std::uint8_t colorToNibble(const std::uint8_t* pixel);
-    std::vector<std::uint8_t> decodeFrame(const std::vector<std::uint8_t>& frame);
+    std::vector<std::uint32_t> sampleFrame(const std::vector<std::uint8_t>& frame) const;
+    std::uint8_t packedColorToLegacySymbol(std::uint32_t packed_color);
+    std::uint8_t packedColorToExtendedSymbol(std::uint32_t packed_color);
+    bool recoverFileFromSamples(const std::vector<std::uint32_t>& sampled_colors,
+                                const std::filesystem::path& output_dir,
+                                int bits_per_symbol,
+                                bool legacy_mode,
+                                bool write_raw_on_failure);
     VideoStreamInfo probeVideo(const std::filesystem::path& video_file) const;
 
     std::string key_;

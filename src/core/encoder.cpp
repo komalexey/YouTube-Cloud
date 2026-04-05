@@ -35,6 +35,9 @@ YouTubeEncoder::YouTubeEncoder(std::string key, CodecSettings settings, Progress
 
 bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
                             const std::filesystem::path& output_file) {
+    constexpr std::size_t kColorCount = 64;
+    const int bits_per_symbol = bitsPerSymbol(kColorCount);
+
     if (!std::filesystem::exists(input_file)) {
         log("ERROR: input file not found: " + input_file.string());
         return false;
@@ -47,15 +50,15 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
         "FILE:" + input_file.filename().string() + ":SIZE:" + std::to_string(data.size()) + "|";
     const std::vector<std::uint8_t> header_bytes(header.begin(), header.end());
 
-    auto all_nibbles = bytesToNibbles(header_bytes);
-    const auto encrypted_nibbles = bytesToNibbles(encrypted_data);
-    const auto eof_nibbles = bytesToNibbles(eofMarkerBytes());
-    all_nibbles.insert(all_nibbles.end(), encrypted_nibbles.begin(), encrypted_nibbles.end());
-    all_nibbles.insert(all_nibbles.end(), eof_nibbles.begin(), eof_nibbles.end());
+    auto all_symbols = bytesToSymbols(header_bytes, bits_per_symbol);
+    const auto encrypted_symbols = bytesToSymbols(encrypted_data, bits_per_symbol);
+    const auto eof_symbols = bytesToSymbols(eofMarkerBytes(), bits_per_symbol);
+    all_symbols.insert(all_symbols.end(), encrypted_symbols.begin(), encrypted_symbols.end());
+    all_symbols.insert(all_symbols.end(), eof_symbols.begin(), eof_symbols.end());
 
     const auto blocks_per_region = settings_.blocksPerRegion();
     const auto frame_payload_count =
-        static_cast<std::size_t>(std::ceil(static_cast<double>(all_nibbles.size()) /
+        static_cast<std::size_t>(std::ceil(static_cast<double>(all_symbols.size()) /
                                            static_cast<double>(blocks_per_region)));
     const auto frames_needed = frame_payload_count + static_cast<std::size_t>(settings_.protective_frames);
 
@@ -63,13 +66,14 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
     log("YouTube Encoder");
     log("============================================================");
     log("Grid: " + std::to_string(settings_.blocksX()) + " x " + std::to_string(settings_.blocksY()));
+    log("Palette: 64 colors (6 bits per block)");
     log("FPS: " + std::to_string(settings_.fps));
     log("Encryption: " + std::string(key_.empty() ? "OFF" : "ON"));
     log("Input: " + input_file.string());
     log("Input bytes: " + std::to_string(data.size()));
     log("Header: " + header);
-    log("Total blocks: " + std::to_string(all_nibbles.size()));
-    log("EOF blocks: " + std::to_string(eof_nibbles.size()));
+    log("Total blocks: " + std::to_string(all_symbols.size()));
+    log("EOF blocks: " + std::to_string(eof_symbols.size()));
     log("Frames: " + std::to_string(frames_needed));
 
     if (output_file.has_parent_path()) {
@@ -88,7 +92,6 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
         throw std::runtime_error("Unable to start ffmpeg for writing");
     }
 
-    const auto& colors = palette();
     const auto frame_size =
         static_cast<std::size_t>(settings_.width) * static_cast<std::size_t>(settings_.height) * 3U;
     std::vector<std::uint8_t> frame(frame_size, 0);
@@ -100,14 +103,14 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
         drawMarkers(frame);
 
         const auto start_idx = frame_num * blocks_per_region;
-        const auto end_idx = std::min(start_idx + blocks_per_region, all_nibbles.size());
+        const auto end_idx = std::min(start_idx + blocks_per_region, all_symbols.size());
         const auto frame_block_count = end_idx - start_idx;
 
         for (std::size_t index = 0; index < frame_block_count; ++index) {
             const int y = static_cast<int>(index / static_cast<std::size_t>(settings_.blocksX()));
             const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX()));
             if (y < settings_.blocksY()) {
-                drawBlock(frame, x, y, colors[all_nibbles[start_idx + index]]);
+                drawBlock(frame, x, y, colorFrom64Symbol(all_symbols[start_idx + index]));
             }
         }
 
@@ -116,7 +119,7 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
             const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX())) +
                           settings_.blocksX();
             if (x < settings_.blocksX() * 2 && y < settings_.blocksY()) {
-                drawBlock(frame, x, y, colors[all_nibbles[start_idx + index]]);
+                drawBlock(frame, x, y, colorFrom64Symbol(all_symbols[start_idx + index]));
             }
         }
 
@@ -125,7 +128,7 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
                           settings_.blocksY();
             const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX()));
             if (x < settings_.blocksX() && y < settings_.blocksY() * 2) {
-                drawBlock(frame, x, y, colors[all_nibbles[start_idx + index]]);
+                drawBlock(frame, x, y, colorFrom64Symbol(all_symbols[start_idx + index]));
             }
         }
 

@@ -71,7 +71,7 @@ int main(int argc, char** argv) {
             }
 
             const std::filesystem::path input_file = argv[2];
-            const std::filesystem::path output_file = argc > 3 ? argv[3] : "output.mp4";
+            const std::filesystem::path output_file = argc > 3 ? argv[3] : input_file.stem().string() + ".mp4";
             YouTubeEncoder encoder(key, {}, &sink);
             return encoder.encode(input_file, output_file) ? EXIT_SUCCESS : EXIT_FAILURE;
         }

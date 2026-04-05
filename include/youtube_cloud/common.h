@@ -37,13 +37,15 @@ struct VideoStreamInfo {
     std::size_t frame_count = 0;
 };
 
-const std::array<Color, 16>& palette();
+const std::array<Color, 16>& legacyPalette();
+int bitsPerSymbol(std::size_t color_count);
+Color colorFrom64Symbol(std::uint8_t symbol);
 
 std::vector<std::uint8_t> readBinaryFile(const std::filesystem::path& path);
 void writeBinaryFile(const std::filesystem::path& path, const std::vector<std::uint8_t>& data);
 std::vector<std::uint8_t> xorWithKey(const std::vector<std::uint8_t>& data, const std::string& key);
-std::vector<std::uint8_t> bytesToNibbles(const std::vector<std::uint8_t>& data);
-std::vector<std::uint8_t> nibblesToBytes(const std::vector<std::uint8_t>& nibbles);
+std::vector<std::uint8_t> bytesToSymbols(const std::vector<std::uint8_t>& data, int bits_per_symbol);
+std::vector<std::uint8_t> symbolsToBytes(const std::vector<std::uint8_t>& symbols, int bits_per_symbol);
 std::vector<std::uint8_t> eofMarkerBytes();
 std::string readKeyFromFile(const std::filesystem::path& path);
 std::filesystem::path uniqueOutputPath(const std::filesystem::path& directory, const std::string& filename);

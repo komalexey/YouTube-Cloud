@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -17,6 +18,12 @@ namespace {
 
 bool pipeExitedSuccessfully(int status) {
     return status != -1 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+std::uint8_t quantizeChannel(std::uint8_t value) {
+    static constexpr int kStep = 85;
+    const int rounded = (static_cast<int>(value) + (kStep / 2)) / kStep;
+    return static_cast<std::uint8_t>(std::clamp(rounded, 0, 3));
 }
 
 double parseRate(const std::string& value) {
@@ -64,6 +71,7 @@ bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
     log("YouTube Decoder");
     log("============================================================");
     log("Grid: " + std::to_string(settings_.blocksX()) + " x " + std::to_string(settings_.blocksY()));
+    log("Preferred palette: 64 colors (6 bits per block)");
     log("Key: " + std::string(key_.empty() ? "NO" : "YES"));
 
     const auto info = probeVideo(video_file);
@@ -81,15 +89,11 @@ bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
         throw std::runtime_error("Unable to start ffmpeg for reading");
     }
 
-    cache_hits_ = 0;
-    cache_misses_ = 0;
-    color_cache_.clear();
-
     const auto frame_bytes =
         static_cast<std::size_t>(settings_.width) * static_cast<std::size_t>(settings_.height) * 3U;
     std::vector<std::uint8_t> frame(frame_bytes, 0);
-    std::vector<std::uint8_t> all_nibbles;
-    all_nibbles.reserve(info.frame_count > 0 ? info.frame_count * settings_.blocksPerRegion() : 0);
+    std::vector<std::uint32_t> sampled_colors;
+    sampled_colors.reserve(info.frame_count > 0 ? info.frame_count * settings_.blocksPerRegion() : 0);
 
     std::size_t frames_processed = 0;
     const auto started = std::chrono::steady_clock::now();
@@ -111,8 +115,8 @@ bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
             break;
         }
 
-        auto frame_nibbles = decodeFrame(frame);
-        all_nibbles.insert(all_nibbles.end(), frame_nibbles.begin(), frame_nibbles.end());
+        auto frame_samples = sampleFrame(frame);
+        sampled_colors.insert(sampled_colors.end(), frame_samples.begin(), frame_samples.end());
 
         ++frames_processed;
         if (frames_processed % 100 == 0) {
@@ -133,11 +137,143 @@ bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
 
     const auto elapsed =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-    log("Decoded blocks: " + std::to_string(all_nibbles.size()) + " in " + std::to_string(elapsed) + " sec");
-    log("Cache hits: " + std::to_string(cache_hits_) + ", misses: " + std::to_string(cache_misses_));
+    log("Sampled blocks: " + std::to_string(sampled_colors.size()) + " in " + std::to_string(elapsed) + " sec");
     log("Frames processed: " + std::to_string(frames_processed));
 
-    auto bytes_data = nibblesToBytes(all_nibbles);
+    if (recoverFileFromSamples(sampled_colors, output_dir, 6, false, false)) {
+        return true;
+    }
+
+    log("Falling back to legacy 16-color decoding...");
+    return recoverFileFromSamples(sampled_colors, output_dir, 4, true, true);
+}
+
+void YouTubeDecoder::log(const std::string& message) const {
+    sink_->log(message);
+}
+
+void YouTubeDecoder::reportProgress(const std::string& stage,
+                                    std::size_t current,
+                                    std::size_t total) const {
+    sink_->progress(stage, current, total);
+}
+
+void YouTubeDecoder::precomputeCoordinates() {
+    block_coords_.clear();
+    block_coords_.reserve(settings_.blocksPerRegion());
+
+    for (std::size_t index = 0; index < settings_.blocksPerRegion(); ++index) {
+        const int y = static_cast<int>(index / static_cast<std::size_t>(settings_.blocksX()));
+        const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX()));
+        if (y < settings_.blocksY()) {
+            const int cx =
+                settings_.marker_size + x * (settings_.block_width + settings_.spacing) + settings_.block_width / 2;
+            const int cy = settings_.marker_size + y * (settings_.block_height + settings_.spacing) +
+                           settings_.block_height / 2;
+            block_coords_.emplace_back(cx, cy);
+        }
+    }
+}
+
+std::vector<std::uint32_t> YouTubeDecoder::sampleFrame(const std::vector<std::uint8_t>& frame) const {
+    std::vector<std::uint32_t> samples;
+    samples.reserve(block_coords_.size());
+
+    for (const auto& [cx, cy] : block_coords_) {
+        const auto offset =
+            (static_cast<std::size_t>(cy) * static_cast<std::size_t>(settings_.width) +
+             static_cast<std::size_t>(cx)) *
+            3U;
+        const auto packed = static_cast<std::uint32_t>(frame[offset]) |
+                            (static_cast<std::uint32_t>(frame[offset + 1]) << 8U) |
+                            (static_cast<std::uint32_t>(frame[offset + 2]) << 16U);
+        samples.push_back(packed);
+    }
+
+    return samples;
+}
+
+std::uint8_t YouTubeDecoder::packedColorToLegacySymbol(std::uint32_t packed_color) {
+    const auto cached = color_cache_.find(packed_color);
+    if (cached != color_cache_.end()) {
+        ++cache_hits_;
+        return cached->second;
+    }
+
+    ++cache_misses_;
+
+    const auto blue = static_cast<std::uint8_t>(packed_color & 0xFFU);
+    const auto green = static_cast<std::uint8_t>((packed_color >> 8U) & 0xFFU);
+    const auto red = static_cast<std::uint8_t>((packed_color >> 16U) & 0xFFU);
+
+    if (blue > 200 && green < 50 && red < 50) {
+        color_cache_.emplace(packed_color, 0);
+        return 0;
+    }
+
+    const auto& colors = legacyPalette();
+    int best_distance = std::numeric_limits<int>::max();
+    std::uint8_t best_index = 0;
+
+    for (std::size_t index = 0; index < colors.size(); ++index) {
+        const auto db = static_cast<int>(blue) - static_cast<int>(colors[index].b);
+        const auto dg = static_cast<int>(green) - static_cast<int>(colors[index].g);
+        const auto dr = static_cast<int>(red) - static_cast<int>(colors[index].r);
+        const auto distance = db * db + dg * dg + dr * dr;
+        if (distance < best_distance) {
+            best_distance = distance;
+            best_index = static_cast<std::uint8_t>(index);
+        }
+    }
+
+    color_cache_.emplace(packed_color, best_index);
+    return best_index;
+}
+
+std::uint8_t YouTubeDecoder::packedColorToExtendedSymbol(std::uint32_t packed_color) {
+    const auto cached = color_cache_.find(packed_color);
+    if (cached != color_cache_.end()) {
+        ++cache_hits_;
+        return cached->second;
+    }
+
+    ++cache_misses_;
+
+    const auto blue = static_cast<std::uint8_t>(packed_color & 0xFFU);
+    const auto green = static_cast<std::uint8_t>((packed_color >> 8U) & 0xFFU);
+    const auto red = static_cast<std::uint8_t>((packed_color >> 16U) & 0xFFU);
+
+    const auto b_index = quantizeChannel(blue);
+    const auto g_index = quantizeChannel(green);
+    const auto r_index = quantizeChannel(red);
+    const auto symbol = static_cast<std::uint8_t>((b_index << 4U) | (g_index << 2U) | r_index);
+
+    color_cache_.emplace(packed_color, symbol);
+    return symbol;
+}
+
+bool YouTubeDecoder::recoverFileFromSamples(const std::vector<std::uint32_t>& sampled_colors,
+                                            const std::filesystem::path& output_dir,
+                                            int bits_per_symbol,
+                                            bool legacy_mode,
+                                            bool write_raw_on_failure) {
+    cache_hits_ = 0;
+    cache_misses_ = 0;
+    color_cache_.clear();
+
+    std::vector<std::uint8_t> symbols;
+    symbols.reserve(sampled_colors.size());
+
+    for (const auto packed_color : sampled_colors) {
+        symbols.push_back(legacy_mode ? packedColorToLegacySymbol(packed_color)
+                                      : packedColorToExtendedSymbol(packed_color));
+    }
+
+    log("Decoding mode: " + std::string(legacy_mode ? "legacy 16-color" : "extended 64-color"));
+    log("Decoded blocks: " + std::to_string(symbols.size()));
+    log("Cache hits: " + std::to_string(cache_hits_) + ", misses: " + std::to_string(cache_misses_));
+
+    auto bytes_data = symbolsToBytes(symbols, bits_per_symbol);
     log("Decoded bytes: " + std::to_string(bytes_data.size()));
 
     const auto eof_pos = findSequence(bytes_data, eofMarkerBytes());
@@ -184,89 +320,13 @@ bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
         }
     }
 
-    const auto output_path = uniqueOutputPath(output_dir, "decoded_data.bin");
-    writeBinaryFile(output_path, bytes_data);
-    log("Header was not found. Raw data stored at: " + output_path.string());
+    if (write_raw_on_failure) {
+        const auto output_path = uniqueOutputPath(output_dir, "decoded_data.bin");
+        writeBinaryFile(output_path, bytes_data);
+        log("Header was not found. Raw data stored at: " + output_path.string());
+    }
+
     return false;
-}
-
-void YouTubeDecoder::log(const std::string& message) const {
-    sink_->log(message);
-}
-
-void YouTubeDecoder::reportProgress(const std::string& stage,
-                                    std::size_t current,
-                                    std::size_t total) const {
-    sink_->progress(stage, current, total);
-}
-
-void YouTubeDecoder::precomputeCoordinates() {
-    block_coords_.clear();
-    block_coords_.reserve(settings_.blocksPerRegion());
-
-    for (std::size_t index = 0; index < settings_.blocksPerRegion(); ++index) {
-        const int y = static_cast<int>(index / static_cast<std::size_t>(settings_.blocksX()));
-        const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX()));
-        if (y < settings_.blocksY()) {
-            const int cx =
-                settings_.marker_size + x * (settings_.block_width + settings_.spacing) + settings_.block_width / 2;
-            const int cy = settings_.marker_size + y * (settings_.block_height + settings_.spacing) +
-                           settings_.block_height / 2;
-            block_coords_.emplace_back(cx, cy);
-        }
-    }
-}
-
-std::uint8_t YouTubeDecoder::colorToNibble(const std::uint8_t* pixel) {
-    const auto key = static_cast<std::uint32_t>(pixel[0]) |
-                     (static_cast<std::uint32_t>(pixel[1]) << 8U) |
-                     (static_cast<std::uint32_t>(pixel[2]) << 16U);
-
-    const auto cached = color_cache_.find(key);
-    if (cached != color_cache_.end()) {
-        ++cache_hits_;
-        return cached->second;
-    }
-
-    ++cache_misses_;
-
-    if (pixel[0] > 200 && pixel[1] < 50 && pixel[2] < 50) {
-        color_cache_.emplace(key, 0);
-        return 0;
-    }
-
-    const auto& colors = palette();
-    int best_distance = std::numeric_limits<int>::max();
-    std::uint8_t best_index = 0;
-
-    for (std::size_t index = 0; index < colors.size(); ++index) {
-        const auto db = static_cast<int>(pixel[0]) - static_cast<int>(colors[index].b);
-        const auto dg = static_cast<int>(pixel[1]) - static_cast<int>(colors[index].g);
-        const auto dr = static_cast<int>(pixel[2]) - static_cast<int>(colors[index].r);
-        const auto distance = db * db + dg * dg + dr * dr;
-        if (distance < best_distance) {
-            best_distance = distance;
-            best_index = static_cast<std::uint8_t>(index);
-        }
-    }
-
-    color_cache_.emplace(key, best_index);
-    return best_index;
-}
-
-std::vector<std::uint8_t> YouTubeDecoder::decodeFrame(const std::vector<std::uint8_t>& frame) {
-    std::vector<std::uint8_t> nibbles;
-    nibbles.reserve(block_coords_.size());
-
-    for (const auto& [cx, cy] : block_coords_) {
-        const auto offset =
-            (static_cast<std::size_t>(cy) * static_cast<std::size_t>(settings_.width) +
-             static_cast<std::size_t>(cx)) *
-            3U;
-        nibbles.push_back(colorToNibble(frame.data() + offset));
-    }
-
-    return nibbles;
 }
 
 VideoStreamInfo YouTubeDecoder::probeVideo(const std::filesystem::path& video_file) const {
