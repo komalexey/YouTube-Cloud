@@ -41,12 +41,14 @@ build/youtube_cloud
 
 ```bash
 ./build/youtube_cloud encode FILENAME.xxx FILENAME.mp4
+./build/youtube_cloud -e FILENAME.xxx FILENAME.mp4
 ```
 
 Декодирование:
 
 ```bash
 ./build/youtube_cloud decode FILENAME.mp4 OUTPUT_DIR
+./build/youtube_cloud -d FILENAME.mp4 OUTPUT_DIR
 ```
 
 Если второй аргумент не указан:

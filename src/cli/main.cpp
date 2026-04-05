@@ -32,7 +32,9 @@ void printUsage() {
     std::cout << "============================================================\n\n";
     std::cout << "Usage:\n";
     std::cout << "  youtube_cloud encode <file> [output.mp4]\n";
-    std::cout << "  youtube_cloud decode <video> [output_dir]\n\n";
+    std::cout << "  youtube_cloud -e <file> [output.mp4]\n";
+    std::cout << "  youtube_cloud decode <video> [output_dir]\n";
+    std::cout << "  youtube_cloud -d <video> [output_dir]\n\n";
     std::cout << "Features:\n";
     std::cout << "  * 6 FPS\n";
     std::cout << "  * Scale decode input to 1920x1080\n";
@@ -62,7 +64,7 @@ int main(int argc, char** argv) {
     const std::string command = argv[1];
 
     try {
-        if (command == "encode") {
+        if (command == "encode" || command == "-e") {
             if (argc < 3) {
                 printUsage();
                 return EXIT_FAILURE;
@@ -74,7 +76,7 @@ int main(int argc, char** argv) {
             return encoder.encode(input_file, output_file) ? EXIT_SUCCESS : EXIT_FAILURE;
         }
 
-        if (command == "decode") {
+        if (command == "decode" || command == "-d") {
             if (argc < 3) {
                 printUsage();
                 return EXIT_FAILURE;

@@ -1,37 +1,37 @@
-# Arkhitektura i dalshee razvitie
+# Архитектура и дальнейшее развитие
 
-## Chto sdelano seichas
+## Что сделано сейчас
 
-- Vydeleno nezavisimoe C++-yadro s klassami `YouTubeEncoder` i `YouTubeDecoder`.
-- CLI yavlyaetsya tonkoi obvyazkoi nad yadrom.
-- Video-vvod/vyvod vypolnyaetsya cherez `ffmpeg`, poetomu yadro ne zavisitsya ot GUI i OpenCV.
+- Выделено независимое C++-ядро с классами `YouTubeEncoder` и `YouTubeDecoder`.
+- CLI является тонкой обвязкой над ядром.
+- Видео-ввод/вывод выполняется через `ffmpeg`, поэтому ядро не зависит от GUI и OpenCV.
 
-## Kak obychno gotovyat proekt pod budushchii GUI
+## Как обычно готовят проект под будущий GUI
 
-1. Delyat proekt na sloi:
-   - `core` - algoritmy, modeli dannykh, rabota s failami.
-   - `app/cli` - komandnaya stroka.
-   - `app/gui` - budushchii Qt-interfeis.
-2. Vynosyat progress/logging v abstraktsii:
-   - seichas dlya etogo est `ProgressSink`.
-   - v Qt ego udobno zamenit adapterom na `signals/slots`.
-3. Ne smeshivayut logiku i otrisovku:
-   - Qt dolzhen vyzyvat metody yadra, a ne khranit algoritm v vidzhetakh.
-4. Zakladyvayut rasshiryaemye DTO i konfiguratsiyu:
-   - pozhe legko dobavit vybory FPS, razresheniya, klucha i katalogov output.
+1. Делят проект на слои:
+   - `core` - алгоритмы, модели данных, работа с файлами.
+   - `app/cli` - командная строка.
+   - `app/gui` - будущий Qt-интерфейс.
+2. Выносят progress/logging в абстракции:
+   - сейчас для этого есть `ProgressSink`.
+   - в Qt его удобно заменить адаптером на `signals/slots`.
+3. Не смешивают логику и отрисовку:
+   - Qt должен вызывать методы ядра, а не хранить алгоритм в виджетах.
+4. Закладывают расширяемые DTO и конфигурацию:
+   - позже легко добавить выборы FPS, разрешения, ключа и каталогов output.
 
-## Podkhody dlya Qt-chasti
+## Подходы для Qt-части
 
-- Variant 1: `QMainWindow` + rabotnik v `QThread`.
-  Podkhod khorosh dlya klassicheskogo desktop-prilozheniya.
-- Variant 2: Qt Widgets dlya bystrogo utilitarnogo interfeisa.
-  Proshche vsego dlya etogo proekta.
-- Variant 3: Qt Quick / QML.
-  Podkhod udoben, esli nuzhen bolee sovremennyi interfeis i animatsiya.
+- Вариант 1: `QMainWindow` + работник в `QThread`.
+  Подход хорош для классического desktop-приложения.
+- Вариант 2: Qt Widgets для быстрого утилитарного интерфейса.
+  Проще всего для этого проекта.
+- Вариант 3: Qt Quick / QML.
+  Подход удобен, если нужен более современный интерфейс и анимация.
 
-## Gde optimizirovat dalshe
+## Где оптимизировать дальше
 
-- Pipeline "chtenie faila -> generatsiya kadrov -> ffmpeg" mozhno raspallelit po etapam.
-- Dekodirovanie mozhno uskorit packet-based obrabotkoi i parallel sample-analizom kadra.
-- VMesto nakopleniya vsekh blokov v pamyati mozhno sdelat potokovoe vosstanovlenie baitov.
-- Pri perekhode na GUI stoit zapuskat encode/decode v fonovom potoke s signalami progressa.
+- Pipeline "чтение файла -> генерация кадров -> ffmpeg" можно распараллелить по этапам.
+- Декодирование можно ускорить packet-based обработкой и parallel sample-анализом кадра.
+- Вместо накопления всех блоков в памяти можно сделать потоковое восстановление байтов.
+- При переходе на GUI стоит запускать encode/decode в фоновом потоке с сигналами прогресса.
