@@ -42,6 +42,9 @@ build/youtube_cloud
 ```bash
 ./build/youtube_cloud encode FILENAME.xxx FILENAME.mp4
 ./build/youtube_cloud -e FILENAME.xxx FILENAME.mp4
+./build/youtube_cloud -e FILENAME.xxx --palette 64
+./build/youtube_cloud -e FILENAME.xxx -p 16
+./build/youtube_cloud -e --palette 64 FILENAME.xxx FILENAME.mp4
 ```
 
 Декодирование:
@@ -49,11 +52,14 @@ build/youtube_cloud
 ```bash
 ./build/youtube_cloud decode FILENAME.mp4 OUTPUT_DIR
 ./build/youtube_cloud -d FILENAME.mp4 OUTPUT_DIR
+./build/youtube_cloud -d FILENAME.mp4 --palette 64
+./build/youtube_cloud -d FILENAME.mp4 -p 16
+./build/youtube_cloud -d --palette 16 FILENAME.mp4 OUTPUT_DIR
 ```
 
 Если второй аргумент не указан:
 
-- для `encode` будет использован `output.mp4`
+- для `encode` будет использован `<имя_файла>.mp4`
 - для `decode` будет использована текущая папка
 
 ## Ключ шифрования
@@ -79,7 +85,8 @@ build/youtube_cloud
 
 - основная схема кодирования теперь использует `64` цвета вместо `16`
 - это даёт `6 бит` на блок вместо `4`
-- декодер сначала пытается прочитать новый `64`-цветный формат, а затем умеет откатиться на старый `16`-цветный режим
+- режим палитры теперь можно выбирать явно: `--palette 16|64` или `-p 16|64`
+- по умолчанию используется палитра `64`
 
 ## Дальше: GUI на Qt
 

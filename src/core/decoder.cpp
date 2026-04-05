@@ -62,6 +62,10 @@ YouTubeDecoder::YouTubeDecoder(std::string key, CodecSettings settings, Progress
 
 bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
                             const std::filesystem::path& output_dir) {
+    if (settings_.palette_colors != 16 && settings_.palette_colors != 64) {
+        throw std::runtime_error("Unsupported palette size. Use 16 or 64.");
+    }
+
     if (!std::filesystem::exists(video_file)) {
         log("ERROR: video file not found: " + video_file.string());
         return false;
@@ -71,7 +75,9 @@ bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
     log("YouTube Decoder");
     log("============================================================");
     log("Grid: " + std::to_string(settings_.blocksX()) + " x " + std::to_string(settings_.blocksY()));
-    log("Preferred palette: 64 colors (6 bits per block)");
+    log("Palette: " + std::to_string(settings_.palette_colors) + " colors (" +
+        std::to_string(bitsPerSymbol(static_cast<std::size_t>(settings_.palette_colors))) +
+        " bits per block)");
     log("Key: " + std::string(key_.empty() ? "NO" : "YES"));
 
     const auto info = probeVideo(video_file);
@@ -140,12 +146,11 @@ bool YouTubeDecoder::decode(const std::filesystem::path& video_file,
     log("Sampled blocks: " + std::to_string(sampled_colors.size()) + " in " + std::to_string(elapsed) + " sec");
     log("Frames processed: " + std::to_string(frames_processed));
 
-    if (recoverFileFromSamples(sampled_colors, output_dir, 6, false, false)) {
-        return true;
-    }
-
-    log("Falling back to legacy 16-color decoding...");
-    return recoverFileFromSamples(sampled_colors, output_dir, 4, true, true);
+    return recoverFileFromSamples(sampled_colors,
+                                  output_dir,
+                                  bitsPerSymbol(static_cast<std::size_t>(settings_.palette_colors)),
+                                  settings_.palette_colors == 16,
+                                  true);
 }
 
 void YouTubeDecoder::log(const std::string& message) const {

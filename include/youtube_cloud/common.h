@@ -24,6 +24,7 @@ struct CodecSettings {
     int spacing = 4;
     int marker_size = 80;
     int protective_frames = 5;
+    int palette_colors = 64;
 
     [[nodiscard]] int blocksX() const;
     [[nodiscard]] int blocksY() const;

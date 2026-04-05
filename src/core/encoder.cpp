@@ -35,8 +35,11 @@ YouTubeEncoder::YouTubeEncoder(std::string key, CodecSettings settings, Progress
 
 bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
                             const std::filesystem::path& output_file) {
-    constexpr std::size_t kColorCount = 64;
-    const int bits_per_symbol = bitsPerSymbol(kColorCount);
+    if (settings_.palette_colors != 16 && settings_.palette_colors != 64) {
+        throw std::runtime_error("Unsupported palette size. Use 16 or 64.");
+    }
+
+    const int bits_per_symbol = bitsPerSymbol(static_cast<std::size_t>(settings_.palette_colors));
 
     if (!std::filesystem::exists(input_file)) {
         log("ERROR: input file not found: " + input_file.string());
@@ -66,7 +69,8 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
     log("YouTube Encoder");
     log("============================================================");
     log("Grid: " + std::to_string(settings_.blocksX()) + " x " + std::to_string(settings_.blocksY()));
-    log("Palette: 64 colors (6 bits per block)");
+    log("Palette: " + std::to_string(settings_.palette_colors) + " colors (" +
+        std::to_string(bits_per_symbol) + " bits per block)");
     log("FPS: " + std::to_string(settings_.fps));
     log("Encryption: " + std::string(key_.empty() ? "OFF" : "ON"));
     log("Input: " + input_file.string());
@@ -110,7 +114,12 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
             const int y = static_cast<int>(index / static_cast<std::size_t>(settings_.blocksX()));
             const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX()));
             if (y < settings_.blocksY()) {
-                drawBlock(frame, x, y, colorFrom64Symbol(all_symbols[start_idx + index]));
+                const auto symbol = all_symbols[start_idx + index];
+                drawBlock(frame,
+                          x,
+                          y,
+                          settings_.palette_colors == 64 ? colorFrom64Symbol(symbol)
+                                                         : legacyPalette()[symbol]);
             }
         }
 
@@ -119,7 +128,12 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
             const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX())) +
                           settings_.blocksX();
             if (x < settings_.blocksX() * 2 && y < settings_.blocksY()) {
-                drawBlock(frame, x, y, colorFrom64Symbol(all_symbols[start_idx + index]));
+                const auto symbol = all_symbols[start_idx + index];
+                drawBlock(frame,
+                          x,
+                          y,
+                          settings_.palette_colors == 64 ? colorFrom64Symbol(symbol)
+                                                         : legacyPalette()[symbol]);
             }
         }
 
@@ -128,7 +142,12 @@ bool YouTubeEncoder::encode(const std::filesystem::path& input_file,
                           settings_.blocksY();
             const int x = static_cast<int>(index % static_cast<std::size_t>(settings_.blocksX()));
             if (x < settings_.blocksX() && y < settings_.blocksY() * 2) {
-                drawBlock(frame, x, y, colorFrom64Symbol(all_symbols[start_idx + index]));
+                const auto symbol = all_symbols[start_idx + index];
+                drawBlock(frame,
+                          x,
+                          y,
+                          settings_.palette_colors == 64 ? colorFrom64Symbol(symbol)
+                                                         : legacyPalette()[symbol]);
             }
         }
 
